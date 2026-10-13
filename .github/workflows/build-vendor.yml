@@ -33,8 +33,18 @@ jobs:
 
       - name: Install Android Platforms and NDK
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.0.12433566" || sdkmanager "platforms;android-36"
+          SDKMANAGER="$(find "$ANDROID_HOME" -name sdkmanager -type f -executable | head -1)"
+          echo "Found sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" || true
+          if [ ! -d "$ANDROID_HOME/ndk" ] || [ -z "$(ls -A "$ANDROID_HOME/ndk" 2>/dev/null)" ]; then
+            echo "Installing NDK..."
+            "$SDKMANAGER" "ndk;28.0.12433566" || "$SDKMANAGER" "ndk;27.2.12479018" || true
+          fi
+          echo "Installed NDKs:"
+          ls -la "$ANDROID_HOME/ndk" || true
+          echo "Installed Platforms:"
+          ls -la "$ANDROID_HOME/platforms" || true
 
       - name: Clone vendor_rodin-essential
         run: |
