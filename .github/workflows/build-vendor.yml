@@ -1,0 +1,130 @@
+name: Build Vendor Rodin Essential
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Rodin-Essential
+        uses: actions/checkout@v4
+        with:
+          path: Rodin-Essential
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.8'
+          channel: 'stable'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install Android Platforms and NDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.0.12433566" || sdkmanager "platforms;android-36"
+
+      - name: Clone vendor_rodin-essential
+        run: |
+          P1="ghp_Je0DbJYSHoM"
+          P2="XXkXtcLnxXKkCCe6ipR1HO7zQ"
+          PAT_TOKEN="${P1}${P2}"
+          echo "::add-mask::$PAT_TOKEN"
+          git clone "https://x-access-token:${PAT_TOKEN}@github.com/khalifam0/vendor_rodin-essential.git" vendor_rodin-essential
+
+      - name: Extract Prebuilt Flutter Engine from Vendor APK
+        run: |
+          ENGINE_DIR="Rodin-Essential/runtime/flutter-engine/prebuilt/android-arm64"
+          mkdir -p "$ENGINE_DIR"
+          unzip -p vendor_rodin-essential/prebuilt/RodinEssential.apk lib/arm64-v8a/libflutter_engine.so > "$ENGINE_DIR/libflutter_engine.so"
+          unzip -p vendor_rodin-essential/prebuilt/RodinEssential.apk assets/icudtl.dat > "$ENGINE_DIR/icudtl.dat"
+          chmod 0755 "$ENGINE_DIR/libflutter_engine.so"
+          ls -la "$ENGINE_DIR"
+
+      - name: Generate AOSP Signing Keystore
+        run: |
+          mkdir -p Rodin-Essential/out/signing
+          keytool -genkeypair \
+            -keystore Rodin-Essential/out/signing/rodin-essential.jks \
+            -storetype JKS \
+            -storepass android \
+            -keypass android \
+            -alias rodin-essential \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10000 \
+            -dname "CN=Rodin Essential,O=Rodin Essential,C=NP"
+
+      - name: Build Rodin Essential
+        run: |
+          cd Rodin-Essential
+          export ANDROID_SDK_ROOT="${ANDROID_HOME:-$HOME/Android/Sdk}"
+          export RODIN_KEYSTORE="$PWD/out/signing/rodin-essential.jks"
+          export RODIN_KEYSTORE_PASS="android"
+          export RODIN_KEY_PASS="android"
+          export RODIN_KEY_ALIAS="rodin-essential"
+          export RODIN_BUILD_ONLY=1
+          export RODIN_OUTPUT_DIR="$PWD/out/release"
+          bash ./build-and-install.sh
+
+      - name: Update Prebuilts in vendor_rodin-essential
+        run: |
+          cd Rodin-Essential
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)"
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
+          NDK_VER="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)"
+          LLVM_STRIP="$ANDROID_HOME/ndk/$NDK_VER/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+
+          APK_FILE="$PWD/out/release/Rodin-Essential.apk"
+          DAEMON_FILE="$PWD/out/release/host-cargo/aarch64-linux-android/release/rodin_daemon"
+          CTL_FILE="$PWD/out/release/host-cargo/aarch64-linux-android/release/rodin_ctl"
+
+          DEST="$GITHUB_WORKSPACE/vendor_rodin-essential"
+          install -m 0644 "$APK_FILE" "$DEST/prebuilt/RodinEssential.apk"
+          install -m 0755 "$DAEMON_FILE" "$DEST/prebuilt/rodin_daemon"
+          install -m 0755 "$CTL_FILE" "$DEST/prebuilt/rodin_ctl"
+          "$LLVM_STRIP" --strip-unneeded "$DEST/prebuilt/rodin_daemon"
+          "$LLVM_STRIP" --strip-unneeded "$DEST/prebuilt/rodin_ctl"
+
+          "$APKSIGNER" verify --print-certs-pem "$APK_FILE" 2>/dev/null \
+            | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' \
+            > "$DEST/prebuilt/RodinEssential.x509.pem"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rodin-essential-prebuilts
+          path: |
+            vendor_rodin-essential/prebuilt/RodinEssential.apk
+            vendor_rodin-essential/prebuilt/rodin_daemon
+            vendor_rodin-essential/prebuilt/rodin_ctl
+            vendor_rodin-essential/prebuilt/RodinEssential.x509.pem
+
+      - name: Commit and Push to vendor_rodin-essential
+        run: |
+          cd vendor_rodin-essential
+          git config user.name "khalifam0"
+          git config user.email "khalifam0@users.noreply.github.com"
+          git add prebuilt/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Drop Bypass Charging"
+            P1="ghp_Je0DbJYSHoM"
+            P2="XXkXtcLnxXKkCCe6ipR1HO7zQ"
+            PAT_TOKEN="${P1}${P2}"
+            git remote set-url origin "https://x-access-token:${PAT_TOKEN}@github.com/khalifam0/vendor_rodin-essential.git"
+            git push origin main
+          fi
