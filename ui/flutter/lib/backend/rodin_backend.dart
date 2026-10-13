@@ -138,7 +138,6 @@ final class RodinBackend {
   late _I32Dart _chargingWriteStateNative;
   late _I32Dart _chargingModeNative;
   late _SetI32Dart _setChargingModeNative;
-  _SetI32Dart? _setBypassChargingNative;
   late _I32Dart _batteryCapacityNative;
   late _I32Dart _batteryTempNative;
   late _I64Dart _batteryVoltageNative;
@@ -184,7 +183,6 @@ final class RodinBackend {
   late _SetI32Dart _setBackInterceptNative;
   late _I32Dart _consumeBackRequestNative;
   _I32Dart? _consumeBackGestureNative;
-  _I32Dart? _consumeBypassSettingsNative;
   _BackListenerDart? _setBackListenerNative;
   ffi.NativeCallable<_BackEventNative>? _backListener;
 
@@ -286,11 +284,6 @@ final class RodinBackend {
       _setChargingModeNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
         'rodin_backend_set_charging_mode',
       );
-      if (lib.providesSymbol('rodin_backend_set_bypass_charging')) {
-        _setBypassChargingNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
-          'rodin_backend_set_bypass_charging',
-        );
-      }
       _batteryCapacityNative = lib.lookupFunction<_I32Native, _I32Dart>(
         'rodin_backend_get_battery_capacity',
       );
@@ -423,11 +416,6 @@ final class RodinBackend {
       _consumeBackRequestNative = lib.lookupFunction<_I32Native, _I32Dart>(
         'rodin_host_consume_back_request',
       );
-      if (lib.providesSymbol('rodin_host_consume_bypass_settings_request')) {
-        _consumeBypassSettingsNative = lib.lookupFunction<_I32Native, _I32Dart>(
-          'rodin_host_consume_bypass_settings_request',
-        );
-      }
       if (lib.providesSymbol('rodin_host_consume_back_gesture')) {
         _consumeBackGestureNative = lib.lookupFunction<_I32Native, _I32Dart>(
           'rodin_host_consume_back_gesture',
