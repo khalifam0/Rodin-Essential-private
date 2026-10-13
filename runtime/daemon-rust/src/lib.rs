@@ -2900,7 +2900,7 @@ fn parse_persisted_state(raw: &str) -> PersistedState {
                 }
             }
             "bypass_threshold" => {
-                if let Some(v) = int_value().filter(|v| bypass_policy::valid_threshold(*v)) {
+                if let Some(v) = int_value().filter(|v| (20..=100).contains(v)) {
                     state.bypass_threshold = v;
                 }
             }
@@ -3545,7 +3545,7 @@ fn record_successful_command(cmd: &str) -> Result<(), String> {
             .trim()
             .parse::<i32>()
             .map_err(|_| "invalid bypass threshold")?;
-        if !bypass_policy::valid_threshold(value) {
+        if !(20..=100).contains(&value) {
             return Err("invalid bypass threshold".into());
         }
         return mutate_persisted_state(|state| state.bypass_threshold = value);
@@ -5811,16 +5811,7 @@ fn snapshot() -> String {
         .and_then(|value| parse_kernel_bool(&value))
         .map(i32::from)
         .unwrap_or(-1);
-    let bypass_phase = bypass_policy::phase(
-        bypass_saved == 1,
-        bypass_threshold,
-        battery("capacity").parse().ok(),
-        usb("online").parse().unwrap_or(-1),
-        bypass_live,
-        bypass_verified,
-        battery_current_ua.parse().ok(),
-        BYPASS_POLICY_ERROR.load(Ordering::Acquire) == 1,
-    );
+    let bypass_phase = 0;
     let charging_live_mw = battery_voltage_uv
         .parse::<i64>()
         .ok()
