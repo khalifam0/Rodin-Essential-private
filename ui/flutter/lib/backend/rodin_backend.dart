@@ -138,7 +138,7 @@ final class RodinBackend {
   late _I32Dart _chargingWriteStateNative;
   late _I32Dart _chargingModeNative;
   late _SetI32Dart _setChargingModeNative;
-  late _SetI32Dart _setBypassChargingNative;
+  _SetI32Dart? _setBypassChargingNative;
   late _I32Dart _batteryCapacityNative;
   late _I32Dart _batteryTempNative;
   late _I64Dart _batteryVoltageNative;
@@ -286,9 +286,11 @@ final class RodinBackend {
       _setChargingModeNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
         'rodin_backend_set_charging_mode',
       );
-      _setBypassChargingNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
-        'rodin_backend_set_bypass_charging',
-      );
+      if (lib.providesSymbol('rodin_backend_set_bypass_charging')) {
+        _setBypassChargingNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
+          'rodin_backend_set_bypass_charging',
+        );
+      }
       _batteryCapacityNative = lib.lookupFunction<_I32Native, _I32Dart>(
         'rodin_backend_get_battery_capacity',
       );
@@ -528,18 +530,15 @@ final class RodinBackend {
   int get chargingQuickType => extendedValue(109);
   int get chargingSicMode => extendedValue(110);
   int get chargingLiveMilliwatts => extendedValue(111);
-  bool get bypassChargingSupported => extendedValue(112) == 1;
-  int get bypassChargingState => extendedValue(113);
-  bool get bypassChargingEnabled => bypassChargingSaved == 1;
-  int get bypassChargingSaved => extendedValue(114);
-  bool get bypassHardwareActive => extendedValue(115) == 1;
-  int get bypassThreshold => extendedValue(119);
-  int get bypassPhase => extendedValue(120);
-  bool setBypassThreshold(int percent) =>
-      const <int>{0, 20, 40, 80, 90}.contains(percent) &&
-      setExtendedOperation(31, percent);
-  bool setBypassCharging(bool enabled) =>
-      _queue(_setBypassChargingNative(enabled ? 1 : 0));
+  bool get bypassChargingSupported => false;
+  int get bypassChargingState => 0;
+  bool get bypassChargingEnabled => false;
+  int get bypassChargingSaved => 0;
+  bool get bypassHardwareActive => false;
+  int get bypassThreshold => 80;
+  int get bypassPhase => 0;
+  bool setBypassThreshold(int percent) => false;
+  bool setBypassCharging(bool enabled) => false;
   bool setTouchProfile(int profile) {
     if (profile < 0 || profile > 7) return false;
     return _queue(_setTouchStateNative(profile));
@@ -622,8 +621,7 @@ final class RodinBackend {
   }
 
   int consumeBackGesture() => _consumeBackGestureNative?.call() ?? 0;
-  bool consumeBypassSettingsRequest() =>
-      _consumeBypassSettingsNative?.call() == 1;
+  bool consumeBypassSettingsRequest() => false;
 
   bool listenBackGesture(void Function(int) onEvent) {
     stopBackGesture();

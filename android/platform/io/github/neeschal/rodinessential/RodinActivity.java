@@ -22,21 +22,15 @@ public final class RodinActivity extends NativeActivity {
     private boolean resumed;
     private static native boolean nativeInterceptBack();
     private static native void nativeBack(int phase, float progress, int edge);
-    private static native void nativeOpenBypassSettings();
 
     @Override protected void onCreate(Bundle state) {
         current = this;
         super.onCreate(state);
         if (Build.VERSION.SDK_INT >= 34) callback = new ProgressCallback();
         else if (Build.VERSION.SDK_INT >= 33) callback = () -> nativeBack(4, 1, 0);
-        handleTileIntent(getIntent());
     }
     @Override protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent); setIntent(intent); handleTileIntent(intent);
-    }
-    private void handleTileIntent(Intent intent) {
-        if (intent != null && "android.service.quicksettings.action.QS_TILE_PREFERENCES".equals(intent.getAction()))
-            nativeOpenBypassSettings();
+        super.onNewIntent(intent); setIntent(intent);
     }
     /** Called only when native navigation ownership changes; no polling loop. */
     public static void refreshBackFromNative() {

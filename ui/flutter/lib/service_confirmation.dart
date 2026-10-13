@@ -123,8 +123,8 @@ class RodinServiceConfirmation extends StatelessWidget {
                 detail(
                   Icons.tune_rounded,
                   reset
-                      ? 'Release device overrides and turn off bypass charging.'
-                      : 'Release device overrides, turn off bypass charging, and pause background control.',
+                      ? 'Release device overrides.'
+                      : 'Release device overrides and pause background control.',
                 ),
                 detail(
                   reset

@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 
 mod app_controls;
 mod app_runtime;
-mod bypass_policy;
 mod service_control;
 mod subsystem_clocks;
 mod system_colors;
@@ -632,19 +631,7 @@ fn charging_fcc_path() -> Option<PathBuf> {
 }
 
 fn bypass_charging_path() -> Option<PathBuf> {
-    let capability = Path::new("/sys/class/power_supply/battery/bypass_charging_supported");
-    if !Path::new("/sys/class/power_supply/battery/bypass_charging_active").exists()
-        || read_trimmed(capability)
-            .ok()
-            .and_then(|value| parse_kernel_bool(&value))
-            != Some(true)
-    {
-        return None;
-    }
-    BYPASS_CHARGING_PATHS
-        .into_iter()
-        .map(PathBuf::from)
-        .find(|path| path.exists())
+    None
 }
 
 fn parse_kernel_bool(value: &str) -> Option<bool> {
@@ -663,30 +650,7 @@ fn bypass_charging_state() -> i32 {
         .unwrap_or(-1)
 }
 
-fn apply_bypass_charging(enabled: bool) -> Result<(), String> {
-    let path = bypass_charging_path()
-        .ok_or_else(|| "bypass charging is not supported by this kernel".to_string())?;
-    // The OEM driver restarts its neutral-current observation on a write,
-    // including a repeated enable. Reads, page changes and wake restoration
-    // must not restart that hardware settling interval.
-    if read_trimmed(&path)
-        .ok()
-        .and_then(|value| parse_kernel_bool(&value))
-        == Some(enabled)
-    {
-        return Ok(());
-    }
-    let requested = if enabled { "1" } else { "0" };
-    let readback = write_verified(&path, requested)?;
-    let actual = parse_kernel_bool(&readback)
-        .ok_or_else(|| format!("bypass charging readback is invalid: {readback}"))?;
-    if actual != enabled {
-        return Err(format!(
-            "bypass charging verify failed: requested {}, live {}",
-            i32::from(enabled),
-            i32::from(actual)
-        ));
-    }
+fn apply_bypass_charging(_enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
@@ -710,98 +674,13 @@ fn wake_bypass_monitor() {
     BYPASS_MONITOR_WAKE.notify_one();
 }
 
-fn reconcile_bypass(enabled: bool, threshold: i32, explicit: bool) -> Result<(), String> {
-    let mut policy = BYPASS_POLICY
-        .get_or_init(|| Mutex::new(BypassPolicyRuntime::default()))
-        .lock()
-        .map_err(|_| "bypass policy lock poisoned".to_string())?;
-    let live = bypass_charging_state();
-    if live < 0 {
-        return Err("bypass charging is not supported by this kernel".into());
-    }
-    if policy.selection != Some((enabled, threshold)) {
-        // Recover the threshold latch from the real hardware after a daemon
-        // restart, rather than briefly resuming charging in its release band.
-        policy.held = live == 1;
-        policy.selection = Some((enabled, threshold));
-    }
-    let desired = bypass_policy::target(
-        enabled,
-        threshold,
-        battery("capacity").parse::<i32>().ok(),
-        policy.held,
-    )?;
-    let transition = desired != policy.held;
-    if live != i32::from(desired) {
-        // Events drive normal transitions. Bound retries of a vendor conflict;
-        // never run a sysfs write loop or restart an unchanged request.
-        if !explicit
-            && !transition
-            && policy
-                .last_write
-                .is_some_and(|time| time.elapsed() < Duration::from_secs(5))
-        {
-            return Ok(());
-        }
-        policy.last_write = Some(Instant::now());
-        apply_bypass_charging(desired)?;
-    }
-    policy.held = desired;
-    BYPASS_POLICY_ERROR.store(0, Ordering::Release);
+fn reconcile_bypass(_enabled: bool, _threshold: i32, _explicit: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn maintain_bypass_policy() {
-    let _transaction = BYPASS_TRANSACTION
-        .lock()
-        .expect("bypass transaction poisoned");
-    let state = persisted_state().lock().ok().map(|state| state.clone());
-    if let Some(state) = state.filter(|state| state.bypass_charging == 1) {
-        if let Err(error) = reconcile_bypass(true, state.bypass_threshold, false) {
-            if BYPASS_POLICY_ERROR.swap(1, Ordering::AcqRel) == 0 {
-                eprintln!("RODIN_BYPASS_POLICY_FAIL {error}");
-            }
-        }
-    }
-}
+fn maintain_bypass_policy() {}
 
-fn configure_bypass(enabled: Option<bool>, threshold: Option<i32>) -> Result<(), String> {
-    let _transaction = BYPASS_TRANSACTION
-        .lock()
-        .map_err(|_| "bypass transaction poisoned")?;
-    let old = persisted_state()
-        .lock()
-        .map_err(|_| "persisted state poisoned")?
-        .clone();
-    let threshold_only = enabled.is_none();
-    let enabled = enabled.unwrap_or(old.bypass_charging == 1);
-    let threshold = threshold.unwrap_or(old.bypass_threshold);
-    if !bypass_policy::valid_threshold(threshold) {
-        return Err("invalid bypass threshold".into());
-    }
-    if threshold_only && !enabled {
-        if bypass_charging_path().is_none() {
-            return Err("bypass charging is not supported by this kernel".into());
-        }
-        // Selecting a future threshold while OFF must not change hardware.
-        return mutate_persisted_state(|state| state.bypass_threshold = threshold);
-    }
-    if enabled && old.bypass_charging != 1 && old.charging > 0 && charging_fcc_path().is_some() {
-        // While armed, threshold charging belongs to OEM, not a saved watt tier.
-        apply_charging_profile(0)?;
-    }
-    reconcile_bypass(enabled, threshold, true)?;
-    if let Err(error) = mutate_persisted_state(|state| {
-        state.bypass_charging = i32::from(enabled);
-        state.bypass_threshold = threshold;
-    }) {
-        let _ = reconcile_bypass(old.bypass_charging == 1, old.bypass_threshold, true);
-        return Err(error);
-    }
-    if !enabled && old.bypass_charging == 1 && charging_fcc_path().is_some() {
-        apply_charging_profile(normalize_charging_profile(old.charging))?;
-    }
-    wake_bypass_monitor();
+fn configure_bypass(_enabled: Option<bool>, _threshold: Option<i32>) -> Result<(), String> {
     Ok(())
 }
 

@@ -20,8 +20,6 @@ import 'motion_diagnostics.dart';
 
 import 'backend/rodin_backend.dart';
 import 'backend/per_app_backend.dart';
-import 'backend/bypass_telemetry.dart';
-import 'bypass_threshold_selector.dart';
 import 'backend/system_colors_library.dart';
 import 'system_colors_preview.dart';
 import 'service_confirmation.dart';
@@ -317,7 +315,6 @@ class _RodinShellState extends State<RodinShell>
   bool _rootNavAnimating = false;
   RodinScreen? _rootNavTarget;
   int _rootNavRevision = 0;
-  int _bypassFocusRevision = 0;
   late final VoidCallback _interactionRevisionListener;
   Timer? _nativeBackPoll;
   late final AnimationController _backSettle;
@@ -369,13 +366,6 @@ class _RodinShellState extends State<RodinShell>
     _nativeBackPoll = Timer.periodic(const Duration(milliseconds: 16), (_) {
       if (!mounted) return;
       final backend = RodinBackend.instance;
-      if (backend.consumeBypassSettingsRequest()) {
-        _backSettle.stop();
-        _backSettle.value = 0;
-        _openDetail(RodinScreen.charging);
-        setState(() => _bypassFocusRevision++);
-        return;
-      }
       final packet = backend.consumeBackGesture();
       final requested = backend.consumeBackRequest();
       if (packet != 0) {
@@ -814,10 +804,7 @@ class _RodinShellState extends State<RodinShell>
   Widget _detailBody(RodinScreen screen) {
     switch (screen) {
       case RodinScreen.charging:
-        return ChargingScreen(
-          onBack: _back,
-          focusRequest: _bypassFocusRevision,
-        );
+        return ChargingScreen(onBack: _back);
       case RodinScreen.touchBoost:
         return TouchBoostScreen(onBack: _back);
       case RodinScreen.displayStudio:
@@ -5422,10 +5409,8 @@ class _CommunityCard extends StatelessWidget {
 class ChargingScreen extends StatefulWidget {
   const ChargingScreen({
     required this.onBack,
-    this.focusRequest = 0,
     super.key,
   });
-  final int focusRequest;
 
   final VoidCallback onBack;
 
@@ -5434,32 +5419,10 @@ class ChargingScreen extends StatefulWidget {
 }
 
 class _ChargingScreenState extends State<ChargingScreen> {
-  final GlobalKey _bypassKey = GlobalKey();
-
-  void _focusBypass() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final target = _bypassKey.currentContext;
-      if (mounted && target != null) {
-        Scrollable.ensureVisible(
-          target,
-          alignment: 0.16,
-          duration: Duration.zero,
-        );
-      }
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant ChargingScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.focusRequest != oldWidget.focusRequest) _focusBypass();
-  }
-
   @override
   void initState() {
     super.initState();
     RodinBackend.instance.refresh();
-    if (widget.focusRequest > 0) _focusBypass();
   }
 
   @override
@@ -5489,406 +5452,12 @@ class _ChargingScreenState extends State<ChargingScreen> {
                 const SizedBox(height: 10),
                 _ChargingBatteryCard(snapshot: snapshot),
                 const SizedBox(height: 9),
-                KeyedSubtree(
-                  key: _bypassKey,
-                  child: _BypassChargingCard(snapshot: snapshot),
-                ),
-                const SizedBox(height: 9),
                 _ChargingModeCard(snapshot: snapshot),
               ],
             );
           },
     );
   }
-}
-
-class _BypassChargingCard extends StatefulWidget {
-  const _BypassChargingCard({required this.snapshot});
-
-  final RodinBackendSnapshot snapshot;
-
-  @override
-  State<_BypassChargingCard> createState() => _BypassChargingCardState();
-}
-
-class _BypassChargingCardState extends State<_BypassChargingCard> {
-  static const Color accent = Color(0xFF9B7CFF);
-  bool? _pending;
-  int? _thresholdPending;
-  int? _thresholdPreview;
-
-  bool get _directPowerConfirmed => isBypassDirectPowerConfirmed(
-    ready: snapshot.ready,
-    enabled: RodinBackend.instance.bypassChargingEnabled,
-    kernelActive: RodinBackend.instance.bypassHardwareActive,
-    usbOnline: snapshot.usbOnline,
-    batteryCurrentA: snapshot.batteryCurrentA,
-  );
-
-  RodinBackendSnapshot get snapshot => widget.snapshot;
-
-  @override
-  void didUpdateWidget(covariant _BypassChargingCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_pending != null &&
-        (RodinBackend.instance.bypassChargingEnabled == _pending ||
-            snapshot.chargingWriteState == -1)) {
-      _pending = null;
-    }
-    if (_thresholdPending != null &&
-        (RodinBackend.instance.bypassThreshold == _thresholdPending ||
-            snapshot.chargingWriteState == -1)) {
-      _thresholdPending = null;
-    }
-  }
-
-  String _stateLabel(bool enabled) {
-    if (!snapshot.ready) return 'BACKEND UNAVAILABLE';
-    if (!snapshot.serviceEnabled) return 'DISABLED';
-    if (_pending != null) return 'APPLYING';
-    if (!RodinBackend.instance.bypassChargingSupported) return 'NOT SUPPORTED';
-    if (!enabled) return 'OFF';
-    return switch (RodinBackend.instance.bypassPhase) {
-      1 => 'CHARGING TO THRESHOLD',
-      2 => 'ARMED',
-      4 when _directPowerConfirmed => 'DIRECT POWER',
-      5 => 'CONTROL UNAVAILABLE',
-      6 => 'BATTERY ASSIST',
-      7 => 'CHARGING DETECTED',
-      _ => 'POWER SETTLING',
-    };
-  }
-
-  String _description(bool enabled) {
-    if (!snapshot.ready) {
-      return 'Connect to the device backend to check kernel bypass support.';
-    }
-    if (!snapshot.serviceEnabled) {
-      return 'Rodin Essential is disabled. Enable it in Settings to use bypass charging.';
-    }
-    if (_pending != null) return 'Applying the kernel bypass setting…';
-    if (!RodinBackend.instance.bypassChargingSupported) {
-      return 'A compatible kernel power-path bypass node is required. '
-          'input_suspend is not used: stopping charger input alone does not '
-          'provide direct system power.';
-    }
-    if (!enabled) {
-      return 'Uses the supported kernel charge-pause power path. Select a '
-          'battery threshold, or Immediately to pause charging as soon as enabled. '
-          'Works independently of this page and the app.';
-    }
-    if (snapshot.usbOnline == 0) {
-      return 'Bypass is armed. Connect a charger to activate direct system power.';
-    }
-    final int threshold = RodinBackend.instance.bypassThreshold;
-    if (RodinBackend.instance.bypassPhase == 1) {
-      return 'OEM charging continues below $threshold%. At $threshold%, Rodin Essential '
-          'requests bypass automatically. Charging resumes only if the level '
-          'falls two percentage points below the threshold.';
-    }
-    if (RodinBackend.instance.bypassPhase == 5) {
-      return 'The saved choice is still enabled, but kernel control or battery '
-          'telemetry is unavailable. Bypass is not confirmed.';
-    }
-    if (RodinBackend.instance.bypassPhase == 6) {
-      return 'Charge pause is requested, but the battery is supplying part of '
-          'the load. Check your adapter and cable; direct power is not confirmed.';
-    }
-    if (RodinBackend.instance.bypassPhase == 7) {
-      return 'Battery current shows charging despite the bypass request. '
-          'Rodin Essential is not reporting this as working bypass.';
-    }
-    if (!_directPowerConfirmed) {
-      return 'The kernel charge-pause request is active. Power negotiation and '
-          'battery-current measurement are settling; opening this page does '
-          'not restart them.';
-    }
-    return 'Kernel bypass is enabled. External power is connected and battery '
-        'current has stayed near zero, consistent with direct system power.';
-  }
-
-  void _setEnabled(bool enabled) {
-    if (_pending != null ||
-        _thresholdPending != null ||
-        snapshot.chargingWriteState == 1 ||
-        !RodinBackend.instance.bypassChargingSupported) {
-      return;
-    }
-    setState(() => _pending = enabled);
-    RodinHaptics.toggle(enabled);
-    if (!RodinBackend.instance.setBypassCharging(enabled)) {
-      setState(() => _pending = null);
-      RodinHaptics.reject();
-      RodinBackend.instance.refresh();
-    }
-  }
-
-  void _setThreshold(int threshold) {
-    setState(() => _thresholdPreview = null);
-    if (_thresholdPending != null || !snapshot.controlsAvailable) return;
-    if (threshold == RodinBackend.instance.bypassThreshold) return;
-    RodinHaptics.segment();
-    setState(() => _thresholdPending = threshold);
-    if (!RodinBackend.instance.setBypassThreshold(threshold)) {
-      setState(() => _thresholdPending = null);
-      RodinHaptics.reject();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme colors = Theme.of(context).colorScheme;
-    final bool supported = RodinBackend.instance.bypassChargingSupported;
-    final bool enabled =
-        _pending ?? RodinBackend.instance.bypassChargingEnabled;
-    final bool applying = _pending != null || snapshot.chargingWriteState == 1;
-    final String state = _stateLabel(enabled);
-
-    return SurfaceCard(
-      padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
-      accent: supported ? accent : colors.onSurfaceVariant,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[
-                      accent.withValues(alpha: enabled ? 0.30 : 0.14),
-                      accent.withValues(alpha: enabled ? 0.09 : 0.035),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: accent.withValues(alpha: enabled ? 0.42 : 0.18),
-                  ),
-                ),
-                child: Center(
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0, end: enabled ? 1 : 0),
-                    duration: MediaQuery.disableAnimationsOf(context)
-                        ? Duration.zero
-                        : const Duration(milliseconds: 420),
-                    curve: Curves.easeOutCubic,
-                    builder:
-                        (BuildContext context, double flow, Widget? child) {
-                          return CustomPaint(
-                            size: const Size(32, 32),
-                            painter: _BypassPowerPathPainter(
-                              color: supported
-                                  ? accent
-                                  : colors.onSurfaceVariant,
-                              flow: flow,
-                            ),
-                          );
-                        },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Text(
-                      'Bypass Charging',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: (enabled ? accent : colors.onSurfaceVariant)
-                            .withValues(alpha: 0.11),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        state,
-                        style: TextStyle(
-                          fontSize: 8.6,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.55,
-                          color: enabled ? accent : colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Switch.adaptive(
-                value: enabled,
-                onChanged: supported && snapshot.controlsAvailable
-                    ? _setEnabled
-                    : null,
-                activeThumbColor: accent,
-                activeTrackColor: accent.withValues(alpha: 0.34),
-              ),
-            ],
-          ),
-          const SizedBox(height: 11),
-          Row(
-            children: <Widget>[
-              const Expanded(
-                child: Text(
-                  'Start bypass at',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                ),
-              ),
-              Text(
-                (_thresholdPreview ??
-                            _thresholdPending ??
-                            RodinBackend.instance.bypassThreshold) <=
-                        0
-                    ? 'Immediately'
-                    : '${_thresholdPreview ?? _thresholdPending ?? RodinBackend.instance.bypassThreshold}%',
-                style: const TextStyle(
-                  color: accent,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          RodinBypassThresholdSelector(
-            value: _thresholdPending ?? RodinBackend.instance.bypassThreshold,
-            enabled:
-                supported &&
-                snapshot.controlsAvailable &&
-                !applying &&
-                _thresholdPending == null,
-            onChanged: _setThreshold,
-            onPreview: (threshold) {
-              RodinHaptics.frequentSegment();
-              setState(() => _thresholdPreview = threshold);
-            },
-            accent: accent,
-          ),
-          const SizedBox(height: 11),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-            decoration: BoxDecoration(
-              color: (supported ? accent : colors.onSurfaceVariant).withValues(
-                alpha: 0.065,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: (supported ? accent : colors.onSurfaceVariant)
-                    .withValues(alpha: 0.16),
-              ),
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight:
-                    MediaQuery.textScalerOf(context).scale(10.7) * 1.35 * 5,
-              ),
-              child: Text(
-                _description(enabled),
-                style: TextStyle(
-                  fontSize: 10.7,
-                  height: 1.35,
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BypassPowerPathPainter extends CustomPainter {
-  const _BypassPowerPathPainter({required this.color, required this.flow});
-
-  final Color color;
-  final double flow;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.scale(size.width / 32, size.height / 32);
-    final Paint stroke = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    // Adapter feeds the system rail; the lower battery branch is isolated.
-    canvas.drawLine(const Offset(4, 7), const Offset(4, 10), stroke);
-    canvas.drawLine(const Offset(8, 7), const Offset(8, 10), stroke);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(2, 10, 8, 7),
-        const Radius.circular(2),
-      ),
-      stroke,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(6, 17)
-        ..lineTo(6, 20)
-        ..quadraticBezierTo(6, 22, 8, 22)
-        ..lineTo(14, 22)
-        ..quadraticBezierTo(16, 22, 16, 20)
-        ..lineTo(16, 13)
-        ..lineTo(21, 13),
-      stroke,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(21, 8, 9, 10),
-        const Radius.circular(2),
-      ),
-      stroke,
-    );
-    for (final double x in <double>[24, 27]) {
-      canvas.drawLine(Offset(x, 5.5), Offset(x, 8), stroke);
-      canvas.drawLine(Offset(x, 18), Offset(x, 20.5), stroke);
-    }
-    canvas.drawRect(const Rect.fromLTWH(24, 11, 3, 4), Paint()..color = color);
-    final Paint battery = Paint()
-      ..color = color.withValues(alpha: 0.55 - flow * 0.25)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..strokeCap = StrokeCap.round;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(20, 25, 10, 5),
-        const Radius.circular(1),
-      ),
-      battery,
-    );
-    canvas.drawLine(
-      const Offset(18.5, 26.5),
-      const Offset(18.5, 28.5),
-      battery,
-    );
-    canvas.drawLine(const Offset(17, 23.5), const Offset(20, 23.5), battery);
-    if (flow > 0) {
-      canvas.drawCircle(Offset(16 + 3 * flow, 13), 2, Paint()..color = color);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BypassPowerPathPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.flow != flow;
 }
 
 class _ChargingBatteryCard extends StatelessWidget {
@@ -5928,25 +5497,6 @@ class _ChargingBatteryCard extends StatelessWidget {
       snapshot.chargingMode > 0 ? 'Selected Max' : 'Adapter Max';
 
   String _status() {
-    if (snapshot.controlsAvailable &&
-        RodinBackend.instance.bypassChargingEnabled &&
-        RodinBackend.instance.bypassPhase == 4) {
-      return 'Direct power · Battery charging paused';
-    }
-    if (RodinBackend.instance.bypassChargingEnabled) {
-      switch (RodinBackend.instance.bypassPhase) {
-        case 1:
-          return 'Charging to ${RodinBackend.instance.bypassThreshold}%';
-        case 3:
-          return 'Charge pause requested · Power settling';
-        case 5:
-          return 'Bypass control unavailable';
-        case 6:
-          return 'Battery supplementing adapter power';
-        case 7:
-          return 'Charging detected · Bypass not confirmed';
-      }
-    }
     switch (snapshot.batteryStatus) {
       case 1:
         return 'Charging';
@@ -5993,17 +5543,7 @@ class _ChargingBatteryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme colors = Theme.of(context).colorScheme;
-    final bool bypassEnabled = RodinBackend.instance.bypassChargingEnabled;
-    final int bypassPhase = RodinBackend.instance.bypassPhase;
-    final bool isBypass =
-        snapshot.ready &&
-        snapshot.serviceEnabled &&
-        bypassEnabled &&
-        bypassPhase == 4;
-    final bool isCharging =
-        snapshot.batteryStatus == 1 &&
-        !isBypass &&
-        !(bypassEnabled && <int>{3, 6}.contains(bypassPhase));
+    final bool isCharging = snapshot.batteryStatus == 1;
 
     return SurfaceCard(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -6056,7 +5596,7 @@ class _ChargingBatteryCard extends StatelessWidget {
                             letterSpacing: -0.5,
                           ),
                         ),
-                        if (isCharging || isBypass) ...<Widget>[
+                        if (isCharging) ...<Widget>[
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 7,
@@ -6073,9 +5613,9 @@ class _ChargingBatteryCard extends StatelessWidget {
                                 ).withValues(alpha: 0.35),
                               ),
                             ),
-                            child: Text(
-                              isBypass ? 'BYPASS' : 'CHARGING',
-                              style: const TextStyle(
+                            child: const Text(
+                              'CHARGING',
+                              style: TextStyle(
                                 fontSize: 8.8,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.6,
@@ -6301,9 +5841,6 @@ class _ChargingModeCardState extends State<_ChargingModeCard> {
     if (!RodinBackend.instance.chargingControlSupported) {
       return 'Rodin Essential FCC control is unavailable on this kernel';
     }
-    if (RodinBackend.instance.bypassChargingEnabled) {
-      return 'Disable Bypass Charging to use charging profiles';
-    }
     if (snapshot.chargingWriteState == 1) {
       return 'Applying and verifying the selected ceiling…';
     }
@@ -6319,7 +5856,6 @@ class _ChargingModeCardState extends State<_ChargingModeCard> {
     final bool allowed =
         snapshot.controlsAvailable &&
         RodinBackend.instance.chargingControlSupported &&
-        !RodinBackend.instance.bypassChargingEnabled &&
         snapshot.chargingWriteState != 1;
     if (!allowed || profile == (_pendingProfile ?? snapshot.chargingMode)) {
       return;
@@ -6342,7 +5878,6 @@ class _ChargingModeCardState extends State<_ChargingModeCard> {
     final bool enabled =
         snapshot.controlsAvailable &&
         RodinBackend.instance.chargingControlSupported &&
-        !RodinBackend.instance.bypassChargingEnabled &&
         snapshot.chargingWriteState != 1;
 
     return SurfaceCard(
@@ -6414,40 +5949,6 @@ class _ChargingModeCardState extends State<_ChargingModeCard> {
             ],
           ),
           const SizedBox(height: 13),
-          if (RodinBackend.instance.bypassChargingEnabled) ...<Widget>[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF9B7CFF).withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: const Color(0xFF9B7CFF).withValues(alpha: 0.20),
-                ),
-              ),
-              child: Row(
-                children: <Widget>[
-                  const Icon(
-                    Icons.lock_rounded,
-                    size: 16,
-                    color: Color(0xFF9B7CFF),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Charging profiles are unavailable while Bypass Charging is enabled. Disable it to change or use a charging profile.',
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        height: 1.3,
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 11),
-          ],
           AnimatedOpacity(
             duration: const Duration(milliseconds: 180),
             opacity: enabled ? 1 : 0.46,

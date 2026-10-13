@@ -259,8 +259,6 @@ fn reversible_path(path: &Path) -> bool {
                     | "drop_caches"
                     | "disksize"
                     | "comp_algorithm"
-                    | "bypass_charging"
-                    | "bypass_charge"
             )
         )
         && raw.as_ref() != super::MI_THERMAL_CPU_LIMITS

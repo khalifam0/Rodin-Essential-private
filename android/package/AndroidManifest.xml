@@ -44,19 +44,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Tile long-press opens the actual bypass controls. -->
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
         </activity>
-        <service android:name=".BypassTileService" android:exported="true"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
-            android:label="Bypass charging" android:icon="@drawable/ic_bypass">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
-            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
-        </service>
     </application>
 </manifest>

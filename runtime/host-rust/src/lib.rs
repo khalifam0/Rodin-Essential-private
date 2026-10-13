@@ -1,7 +1,6 @@
 mod app_metadata;
 mod backend_bridge;
 mod platform_bridge;
-mod bypass_tile;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use std::ffi::{CStr, CString};
