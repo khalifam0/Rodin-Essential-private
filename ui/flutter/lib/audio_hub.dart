@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'backend/rodin_backend.dart';
+
 import 'backend/audio_backend.dart';
 import 'backend/audio_codec_capabilities.dart';
 import 'backend/audio_ldac_quality.dart';
@@ -1631,7 +1633,81 @@ class _AudioHubScreenState extends State<AudioHubScreen>
               const SizedBox(height: 12),
               _buildSavedProfileCard(),
             ],
+            const SizedBox(height: 24),
+            _buildExternalLinkCard(
+              icon: Icons.code_rounded,
+              title: 'GitHub Repository',
+              subtitle: 'EricDark231',
+              linkCode: 2,
+            ),
+            const SizedBox(height: 8),
+            _buildExternalLinkCard(
+              icon: Icons.send_rounded,
+              title: 'Telegram',
+              subtitle: '@EricDark231',
+              linkCode: 3,
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExternalLinkCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required int linkCode,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          final opened = RodinBackend.instance.openSupportLink(linkCode);
+          if (!opened && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Unable to open link.')),
+            );
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: colors.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(color: colors.primary, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_outward_rounded,
+                color: colors.primary,
+                size: 19,
+              ),
+            ],
+          ),
         ),
       ),
     );
