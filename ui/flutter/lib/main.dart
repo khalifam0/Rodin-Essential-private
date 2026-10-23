@@ -26,6 +26,7 @@ import 'service_confirmation.dart';
 import 'bottom_feedback.dart';
 import 'slider_style.dart';
 import 'surface_lines.dart';
+import 'audio_hub.dart';
 
 part 'system_colors.dart';
 part 'per_app_controls.dart';
@@ -72,6 +73,7 @@ enum RodinScreen {
   systemColors,
   perAppControls,
   subsystemClocks,
+  audioHub,
 }
 
 extension RodinScreenName on RodinScreen {
@@ -109,6 +111,8 @@ extension RodinScreenName on RodinScreen {
         return 'Per-App Controls';
       case RodinScreen.subsystemClocks:
         return 'Memory DVFS & UFS';
+      case RodinScreen.audioHub:
+        return 'Audio Hub';
     }
   }
 
@@ -827,6 +831,8 @@ class _RodinShellState extends State<RodinShell>
         return PerAppControlsScreen(onBack: _back);
       case RodinScreen.subsystemClocks:
         return SubsystemClocksScreen(onBack: _back);
+      case RodinScreen.audioHub:
+        return AudioHubScreen(onBack: _back);
       default:
         return _rootPager();
     }
@@ -4568,6 +4574,20 @@ class HubsScreen extends StatelessWidget {
                   icon: Icons.monitor_heart_rounded,
                   accent: const Color(0xFF74E6C6),
                   onTap: () => onOpen(RodinScreen.diagnostics),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _HubReveal(
+              duration: 700,
+              child: SurfaceCard(
+                padding: const EdgeInsets.all(11),
+                child: _HubControlRow(
+                  title: 'Audio Hub',
+                  subtitle: 'Bluetooth codecs and audio preferences',
+                  icon: Icons.headphones_rounded,
+                  accent: const Color(0xFF67C2FF),
+                  onTap: () => onOpen(RodinScreen.audioHub),
                 ),
               ),
             ),
