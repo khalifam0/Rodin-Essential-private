@@ -1647,6 +1647,30 @@ class _AudioHubScreenState extends State<AudioHubScreen>
               subtitle: '@EricDark231',
               linkCode: 3,
             ),
+            const SizedBox(height: 20),
+            Center(
+              child: Column(
+                children: [
+                  Text(
+                    '❧',
+                    style: TextStyle(
+                      fontSize: 22,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Made with passion, born from necessity, '
+                    'and rooted in the heart.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
